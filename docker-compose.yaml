@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rantchit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-rantchit}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rantchit} -d ${POSTGRES_DB:-rantchit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rantchit-net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rantchit-net
+
+  randchit-Server:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rantchit}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-rantchit}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-please_change_me_to_a_long_random_string}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.rantchit.example,http://localhost:5173}
+      ROOM_DEFAULT_TTL_MINUTES: ${ROOM_DEFAULT_TTL_MINUTES:-60}
+      ROOM_MAX_TTL_MINUTES: ${ROOM_MAX_TTL_MINUTES:-1440}
+      MESSAGE_MAX_BYTES: ${MESSAGE_MAX_BYTES:-16384}
+      RATE_LIMIT_CREATE_PER_HOUR: ${RATE_LIMIT_CREATE_PER_HOUR:-10}
+      RATE_LIMIT_MESSAGES_PER_MINUTE: ${RATE_LIMIT_MESSAGES_PER_MINUTE:-30}
+      WS_HEARTBEAT_SECONDS: ${WS_HEARTBEAT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    networks:
+      - rantchit-net
+
+  rantchit-GUI:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "80"
+    networks:
+      - rantchit-net
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-app.rantchit.example}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - rantchit-net
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  rantchit-net:
+    driver: bridge

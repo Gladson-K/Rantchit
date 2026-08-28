@@ -1,0 +1,25 @@
+{$DOMAIN} {
+    encode gzip
+
+    # Frontend (static)
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+    handle /ws/* {
+        reverse_proxy backend:8000
+    }
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}
