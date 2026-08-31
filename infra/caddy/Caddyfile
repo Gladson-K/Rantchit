@@ -1,7 +1,6 @@
-{$DOMAIN} {
+{$DOMAIN:localhost} {
     encode gzip
 
-    # Frontend (static)
     handle /api/* {
         reverse_proxy backend:8000
     }
