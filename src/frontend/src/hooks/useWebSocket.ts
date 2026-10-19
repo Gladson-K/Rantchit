@@ -4,6 +4,8 @@ import { ConnectionStatusType } from '../lib/types';
 
 export function useWebSocket() {
   const wsRef = useRef<ChatWebSocket | null>(null);
+  // Keep the latest message handler in a ref so WebSocket events never hit a stale closure.
+  const onMessageRef = useRef<((data: any) => void) | null>(null);
   const [status, setStatus] = useState<ConnectionStatusType>('idle');
   const [participantCount, setParticipantCount] = useState<number>(1);
 
@@ -16,6 +18,7 @@ export function useWebSocket() {
       wsRef.current.close();
     }
 
+    onMessageRef.current = onMessage;
     const ws = new ChatWebSocket();
     wsRef.current = ws;
     setStatus('connecting');
@@ -35,6 +38,8 @@ export function useWebSocket() {
           }
         } else if (data.type === 'peer_public_key') {
           setStatus('keys_exchanged');
+        } else if (data.type === 'key_confirm') {
+          // confirmed / security_alert decided by the protocol handler in onMessage
         } else if (data.type === 'participant_left') {
           setStatus('waiting_peer');
           if (data.participants !== undefined) {
@@ -43,7 +48,7 @@ export function useWebSocket() {
         } else if (data.type === 'room_destroyed') {
           setStatus('destroyed');
         }
-        onMessage(data);
+        onMessageRef.current?.(data);
       },
       () => {
         setStatus('disconnected');
@@ -82,6 +87,6 @@ export function useWebSocket() {
     connect,
     send,
     close,
-    isConnected: status === 'connected' || status === 'keys_exchanged' || status === 'peer_joined'
+    isConnected: status === 'confirmed' || status === 'keys_exchanged' || status === 'connected' || status === 'peer_joined'
   };
 }

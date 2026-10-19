@@ -2,9 +2,18 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import UUID
 from typing import Optional
+import re
+
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 class RoomCreate(BaseModel):
-    room_secret_hash: str = Field(..., min_length=64, max_length=64, description="SHA-256 hex of the room secret")
+    room_secret_hash: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA-256 hex of the room secret"
+    )
     expires_in_minutes: int = Field(default=60, ge=1, le=1440, description="Expiration time in minutes (1 to 1440)")
 
 class RoomResponse(BaseModel):

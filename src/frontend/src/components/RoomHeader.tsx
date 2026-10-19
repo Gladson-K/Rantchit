@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ConnectionStatus } from './ConnectionStatus';
-import { ConnectionStatusType } from '../lib/types';
+import { ConnectionStatusType, MkcStatus } from '../lib/types';
 
 interface RoomHeaderProps {
   roomId?: string;
@@ -10,6 +10,7 @@ interface RoomHeaderProps {
   formattedTime?: string;
   isUrgent?: boolean;
   isVerified?: boolean;
+  mkcStatus?: MkcStatus;
   onOpenVerify?: () => void;
   onOpenInvite?: () => void;
   onDestroy: () => void;
@@ -24,6 +25,7 @@ export function RoomHeader({
   formattedTime,
   isUrgent = false,
   isVerified = false,
+  mkcStatus = 'pending',
   onOpenVerify,
   onOpenInvite,
   onDestroy,
@@ -88,10 +90,13 @@ export function RoomHeader({
             <button
               onClick={onOpenVerify}
               title="Verify cryptographic Short Authentication String"
+              data-testid="verify-sas-btn"
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
-                isVerified
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                mkcStatus === 'failed'
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                  : isVerified
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
               }`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

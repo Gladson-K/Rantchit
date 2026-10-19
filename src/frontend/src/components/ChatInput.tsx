@@ -38,9 +38,10 @@ export function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
             onChange={(e) => setText(e.target.value)}
             disabled={disabled}
             maxLength={4000}
+            data-testid="chat-input"
             placeholder={
-              disabled 
-                ? 'Waiting for peer or cryptographic handshake...' 
+              disabled
+                ? placeholder || 'Waiting for peer or cryptographic handshake...'
                 : placeholder || 'Type an encrypted message...'
             }
             className="w-full px-4 py-3 bg-slate-900/90 border border-slate-700/80 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -55,6 +56,7 @@ export function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
         <button
           type="submit"
           disabled={disabled || !text.trim()}
+          data-testid="chat-send"
           className="p-3 bg-brand-600 hover:bg-brand-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-xl font-medium transition-all shadow-lg shadow-brand-950/30 disabled:shadow-none flex items-center justify-center shrink-0"
           aria-label="Send encrypted message"
         >

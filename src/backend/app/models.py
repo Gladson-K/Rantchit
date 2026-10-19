@@ -1,12 +1,11 @@
-from sqlalchemy import Column, String, DateTime, SmallInteger, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, SmallInteger, func, Uuid
 import uuid
 from .database import Base
 
 class Room(Base):
     __tablename__ = "rooms"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     secret_hash = Column(String(64), nullable=False)  # SHA-256 hex of room secret
     status = Column(String(16), default="active", nullable=False)     # active, destroyed, expired
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

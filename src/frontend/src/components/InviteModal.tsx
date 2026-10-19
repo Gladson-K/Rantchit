@@ -36,6 +36,7 @@ export function InviteModal({ isOpen, onClose, inviteUrl }: InviteModalProps) {
               type="text"
               readOnly
               value={inviteUrl}
+              data-testid="invite-url-input"
               className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 truncate select-all"
             />
             <button

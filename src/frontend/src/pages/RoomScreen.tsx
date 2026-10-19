@@ -9,8 +9,8 @@ import { ChatMessage } from '../components/ChatMessage';
 import { ChatInput } from '../components/ChatInput';
 import { VerificationModal } from '../components/VerificationModal';
 import { InviteModal } from '../components/InviteModal';
-import { generateSAS } from '../lib/sas';
-import { ChatMessage as MessageType, RoomInfo, SASData } from '../lib/types';
+import { generateSASFromTranscript } from '../lib/sas';
+import { ChatMessage as MessageType, MkcStatus, RoomInfo, SASData } from '../lib/types';
 
 export function RoomScreen() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -22,28 +22,33 @@ export function RoomScreen() {
     publicKey,
     hasSharedKey,
     initialize: initCrypto,
-    importPeerPublicKey,
+    establishSession,
+    computeConfirmationTag,
+    verifyConfirmationTag,
     encrypt,
     decrypt
   } = useCrypto();
 
   const { getRoomInfo, getJoinToken, destroyRoom: apiDestroyRoom } = useRoom();
-  const { status, participantCount, connect: connectWS, send: sendWS, close: closeWS } = useWebSocket();
+  const { status, setStatus, participantCount, connect: connectWS, send: sendWS, close: closeWS } = useWebSocket();
 
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [sasData, setSasData] = useState<SASData | null>(null);
   const [isPeerVerified, setIsPeerVerified] = useState(false);
+  const [mkcStatus, setMkcStatus] = useState<MkcStatus>('pending');
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [myAlias] = useState(() => sessionStorage.getItem('rantchit_alias') || 'You');
 
   const roomSecretRef = useRef<string>('');
   const secretHashRef = useRef<string>('');
+  const publicKeyRef = useRef<string | null>(null);
+  const peerKeyRef = useRef<string | null>(null);
+  const mkcRef = useRef<MkcStatus>('pending');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isJoinedRef = useRef(false);
 
-  // Auto-scroll to latest message
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -52,7 +57,17 @@ export function RoomScreen() {
     scrollToBottom();
   }, [messages]);
 
-  // Room Expiry Countdown
+  useEffect(() => {
+    publicKeyRef.current = publicKey;
+  }, [publicKey]);
+
+  const pushSystemMessage = useCallback((text: string) => {
+    setMessages(prev => [
+      ...prev,
+      { id: `sys-${Date.now()}-${Math.random()}`, sender: 'system', text, timestamp: Date.now() }
+    ]);
+  }, []);
+
   const { formattedTime, isUrgent } = useCountdown(roomInfo?.expiresAt, () => {
     navigate('/error', {
       state: {
@@ -62,7 +77,7 @@ export function RoomScreen() {
     });
   });
 
-  // 1. Extract Room Secret from URL Fragment
+  // 1. Extract Room Secret from URL Fragment (never sent to server)
   useEffect(() => {
     const hashSecret = location.hash.replace('#', '').trim();
     if (!hashSecret) {
@@ -81,55 +96,76 @@ export function RoomScreen() {
     });
   }, [location, crypto, navigate]);
 
-  // 2. Handle incoming WebSocket events
+  // 2. XBF-MKC protocol handler (reads mutable refs — never stale)
   const handleWsMessage = useCallback(async (data: any) => {
     switch (data.type) {
-      case 'connected':
-        // Connected to relay, send our ephemeral public key
-        if (publicKey) {
-          sendWS({ type: 'public_key', public_key: publicKey });
-        }
+      case 'connected': {
+        const pub = publicKeyRef.current;
+        if (pub) sendWS({ type: 'public_key', public_key: pub });
         break;
+      }
 
       case 'peer_joined':
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}`,
-            sender: 'system',
-            text: 'Peer connected to room. Exchanging cryptographic keys...',
-            timestamp: Date.now()
-          }
-        ]);
-        if (publicKey) {
-          sendWS({ type: 'public_key', public_key: publicKey });
+        pushSystemMessage('Peer connected to room. Exchanging ephemeral keys (XBF-MKC v1)...');
+        {
+          const pub = publicKeyRef.current;
+          if (pub) sendWS({ type: 'public_key', public_key: pub });
         }
         break;
 
-      case 'peer_public_key':
-        if (data.public_key) {
-          try {
-            await importPeerPublicKey(data.public_key);
-            const secretHash = secretHashRef.current || (await crypto.getRoomSecretHash());
-            const sas = await generateSAS(secretHash, data.public_key);
-            setSasData(sas);
+      case 'peer_public_key': {
+        if (!data.public_key) break;
+        if (data.public_key === publicKeyRef.current) break; // ignore self-echo
+        if (data.public_key === peerKeyRef.current) break;   // already processed
 
-            setMessages(prev => [
-              ...prev,
-              {
-                id: `sys-${Date.now()}`,
-                sender: 'system',
-                text: '🔒 End-to-end encrypted session established (ECDH P-256 + AES-GCM). Click "Verify SAS" to confirm peer identity.',
-                timestamp: Date.now()
-              }
-            ]);
-          } catch (e) {
-            console.error('Failed to import peer public key:', e);
-          }
+        try {
+          peerKeyRef.current = data.public_key;
+          await establishSession(data.public_key);
+          const transcript = crypto.getTranscript()!;
+          const sas = await generateSASFromTranscript(transcript);
+          setSasData(sas);
+
+          // Mutual Key Confirmation: prove we derived the identical session.
+          const tag = await computeConfirmationTag();
+          sendWS({ type: 'key_confirm', tag });
+
+          pushSystemMessage(
+            '🔒 Channel established (ECDH P-256 → HKDF → AES-256-GCM, transcript-bound). ' +
+            'Awaiting mutual key confirmation from peer…'
+          );
+        } catch (e) {
+          console.error('Failed to establish XBF-MKC session:', e);
+          pushSystemMessage('⚠️ Failed to establish encrypted session with peer public key.');
         }
         break;
+      }
 
-      case 'message':
+      case 'key_confirm': {
+        if (mkcRef.current !== 'pending' || !data.tag) break;
+        const ok = await verifyConfirmationTag(data.tag);
+        if (ok) {
+          mkcRef.current = 'confirmed';
+          setMkcStatus('confirmed');
+          setStatus('confirmed');
+          pushSystemMessage(
+            '✅ Mutual Key Confirmation passed — both sides derived identical keys. ' +
+            'Open "Verify SAS" to compare the fingerprint out-of-band.'
+          );
+        } else {
+          mkcRef.current = 'failed';
+          setMkcStatus('failed');
+          setStatus('security_alert');
+          pushSystemMessage(
+            '🚨 SECURITY ALERT: Key confirmation FAILED. The relayed key material was altered — ' +
+            'a Man-in-the-Middle is present. Messaging is disabled. Verify nothing and leave immediately.'
+          );
+        }
+        break;
+      }
+
+      case 'message': {
+        if (mkcRef.current === 'failed') break;
+        if (mkcRef.current !== 'confirmed') break;
         if (data.encrypted_payload && data.nonce) {
           try {
             const plaintext = await decrypt(data.encrypted_payload, data.nonce);
@@ -140,25 +176,22 @@ export function RoomScreen() {
                 sender: 'peer',
                 text: plaintext,
                 timestamp: Date.now(),
-                isVerified: isPeerVerified
+                isVerified: mkcRef.current === 'confirmed'
               }
             ]);
           } catch (err) {
             console.error('Decryption failed for incoming message:', err);
+            pushSystemMessage(
+              '⚠️ Received a message that failed authentication (wrong key or tampered ciphertext). ' +
+              'It was discarded.'
+            );
           }
         }
         break;
+      }
 
       case 'participant_left':
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}`,
-            sender: 'system',
-            text: 'Peer left the room.',
-            timestamp: Date.now()
-          }
-        ]);
+        pushSystemMessage('Peer left the room.');
         break;
 
       case 'room_destroyed':
@@ -171,18 +204,10 @@ export function RoomScreen() {
         break;
 
       case 'error':
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}`,
-            sender: 'system',
-            text: `⚠️ ${data.message || 'Server error'}`,
-            timestamp: Date.now()
-          }
-        ]);
+        pushSystemMessage(`⚠️ ${data.message || 'Server error'}`);
         break;
     }
-  }, [publicKey, sendWS, importPeerPublicKey, decrypt, crypto, isPeerVerified, navigate]);
+  }, [sendWS, establishSession, computeConfirmationTag, verifyConfirmationTag, decrypt, crypto, navigate, pushSystemMessage, setStatus]);
 
   // 3. Initialize Crypto and Join Room
   useEffect(() => {
@@ -191,7 +216,6 @@ export function RoomScreen() {
 
     async function joinRoomFlow() {
       try {
-        // Step A: Check room existence & status
         const info = await getRoomInfo(roomId!);
         setRoomInfo(info);
 
@@ -205,20 +229,21 @@ export function RoomScreen() {
           return;
         }
 
-        // Step B: Generate client ECDH Keypair
         const pubKey = await initCrypto();
+        publicKeyRef.current = pubKey;
 
-        // Step C: Request single-use join token
         const token = await getJoinToken(roomId!, roomSecretRef.current);
 
-        // Step D: Connect WebSocket
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${import.meta.env.VITE_WS_BASE_URL || `${protocol}//${window.location.host}`}/ws/chat?room_id=${roomId}&token=${token}`;
+        const wsBase =
+          (import.meta.env.VITE_WS_BASE_URL as string | undefined) ||
+          (typeof localStorage !== 'undefined' ? localStorage.getItem('rantchit_ws_base') : null) ||
+          `${protocol}//${window.location.host}`;
+        const wsUrl = `${wsBase}/ws/chat?room_id=${roomId}&token=${token}`;
 
         connectWS(wsUrl, handleWsMessage, () => {
           console.warn('WebSocket connection closed');
         });
-
       } catch (err: any) {
         console.error('Room join failed:', err);
         navigate('/error', {
@@ -233,9 +258,9 @@ export function RoomScreen() {
     joinRoomFlow();
   }, [roomId, initCrypto, getRoomInfo, getJoinToken, connectWS, handleWsMessage, navigate]);
 
-  // 4. Message sending handler
+  // 4. Message sending handler — gated on mutual key confirmation
   const handleSendMessage = async (text: string) => {
-    if (!hasSharedKey) return;
+    if (!hasSharedKey || mkcRef.current !== 'confirmed') return;
     try {
       const { ciphertext, nonce } = await encrypt(text);
       const sent = sendWS({
@@ -261,7 +286,6 @@ export function RoomScreen() {
     }
   };
 
-  // 5. Room destruction handler
   const handleDestroyRoom = async () => {
     try {
       sendWS({ type: 'destroy' });
@@ -276,7 +300,6 @@ export function RoomScreen() {
     }
   };
 
-  // 6. Leave Room handler
   const handleLeaveRoom = () => {
     sendWS({ type: 'leave' });
     closeWS();
@@ -284,6 +307,7 @@ export function RoomScreen() {
   };
 
   const inviteUrl = `${window.location.origin}/room/${roomId}#${roomSecretRef.current}`;
+  const inputEnabled = hasSharedKey && mkcStatus === 'confirmed';
 
   return (
     <div className="h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-brand-500 selection:text-white">
@@ -295,13 +319,25 @@ export function RoomScreen() {
         formattedTime={formattedTime}
         isUrgent={isUrgent}
         isVerified={isPeerVerified}
+        mkcStatus={mkcStatus}
         onOpenVerify={() => setShowVerifyModal(true)}
         onOpenInvite={() => setShowInviteModal(true)}
         onDestroy={handleDestroyRoom}
         onLeave={handleLeaveRoom}
       />
 
-      {/* Main Chat Stream */}
+      {/* MITM hard-fail banner */}
+      {mkcStatus === 'failed' && (
+        <div
+          data-testid="mitm-alert"
+          className="bg-rose-950/80 border-b border-rose-600/60 px-4 py-3 text-center"
+        >
+          <p className="text-rose-300 text-sm font-bold">
+            🚨 MITM DETECTED — Key confirmation failed. Messaging disabled. Leave this room.
+          </p>
+        </div>
+      )}
+
       <main className="flex-1 overflow-y-auto px-4 py-6 max-w-4xl w-full mx-auto space-y-1">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 text-slate-500">
@@ -313,7 +349,7 @@ export function RoomScreen() {
             <div className="space-y-1 max-w-md">
               <h2 className="text-base font-semibold text-slate-300">Room Ready & Awaiting Handshake</h2>
               <p className="text-xs text-slate-400">
-                Messages sent here are encrypted client-side using AES-GCM-256 with ephemeral keys. Share the invitation link to start chatting.
+                Messages are encrypted client-side with AES-GCM-256 under the XBF-MKC v1 protocol. Share the invitation link to start chatting.
               </p>
             </div>
             <button
@@ -331,30 +367,34 @@ export function RoomScreen() {
             <ChatMessage
               key={msg.id}
               message={msg}
-              isPeerVerified={isPeerVerified}
+              isPeerVerified={isPeerVerified || mkcStatus === 'confirmed'}
             />
           ))
         )}
         <div ref={messagesEndRef} />
       </main>
 
-      {/* Input Bar */}
       <ChatInput
         onSend={handleSendMessage}
-        disabled={!hasSharedKey}
-        placeholder={hasSharedKey ? 'Type an encrypted message...' : 'Waiting for peer to connect and exchange keys...'}
+        disabled={!inputEnabled}
+        placeholder={
+          mkcStatus === 'failed'
+            ? 'Messaging disabled — security failure detected'
+            : inputEnabled
+              ? 'Type an encrypted message...'
+              : 'Waiting for mutual key confirmation...'
+        }
       />
 
-      {/* SAS Verification Dialog */}
       <VerificationModal
         isOpen={showVerifyModal}
         onClose={() => setShowVerifyModal(false)}
         sasData={sasData}
         isVerified={isPeerVerified}
+        mkcStatus={mkcStatus}
         onVerify={() => setIsPeerVerified(true)}
       />
 
-      {/* Share / Invite Modal */}
       <InviteModal
         isOpen={showInviteModal}
         onClose={() => setShowInviteModal(false)}

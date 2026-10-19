@@ -1,12 +1,13 @@
 import React from 'react';
 import { AccessibleModal } from './AccessibleModal';
-import { SASData } from '../lib/types';
+import { MkcStatus, SASData } from '../lib/types';
 
 interface VerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
   sasData: SASData | null;
   isVerified: boolean;
+  mkcStatus: MkcStatus;
   onVerify: () => void;
 }
 
@@ -15,6 +16,7 @@ export function VerificationModal({
   onClose,
   sasData,
   isVerified,
+  mkcStatus,
   onVerify
 }: VerificationModalProps) {
   if (!sasData) return null;
@@ -23,18 +25,38 @@ export function VerificationModal({
     <AccessibleModal isOpen={isOpen} onClose={onClose} title="Peer Cryptographic Verification (SAS)">
       <div className="space-y-6">
         <p className="text-sm text-slate-300">
-          Compare this <strong>Short Authentication String (SAS)</strong> with your peer via an out-of-band channel (e.g., voice or in person). If both match, it mathematically guarantees no Man-in-the-Middle (MITM) attack is occurring.
+          Compare this <strong>Short Authentication String (SAS)</strong> with your peer via an out-of-band channel (e.g., voice or in person). Both sides display the identical code because it is derived from the shared XBF-MKC channel transcript. If they match, no Man-in-the-Middle is present.
         </p>
+
+        {/* Mutual Key Confirmation status (automatic, cryptographic) */}
+        <div
+          data-testid="mkc-badge"
+          className={`flex items-center justify-between p-3.5 rounded-xl border text-sm ${
+            mkcStatus === 'confirmed'
+              ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+              : mkcStatus === 'failed'
+                ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                : 'bg-amber-950/30 border-amber-500/30 text-amber-300'
+          }`}
+        >
+          <span className="font-medium">
+            {mkcStatus === 'confirmed'
+              ? '✅ Mutual Key Confirmation: PASSED (cryptographic)'
+              : mkcStatus === 'failed'
+                ? '🚨 Mutual Key Confirmation: FAILED — MITM detected'
+                : '⧗ Mutual Key Confirmation: waiting for peer…'}
+          </span>
+        </div>
 
         {/* Visual Emoji Fingerprint */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 text-center space-y-3">
           <div className="text-xs uppercase font-semibold tracking-wider text-slate-400">
             Emoji Fingerprint
           </div>
-          <div className="flex justify-center items-center gap-4 text-3xl sm:text-4xl py-1 select-none">
+          <div className="flex justify-center items-center gap-4 text-3xl sm:text-4xl py-1 select-none" data-testid="sas-emojis">
             {sasData.emojis.map((emoji, idx) => (
-              <span 
-                key={idx} 
+              <span
+                key={idx}
                 className="p-2 bg-slate-800/80 border border-slate-700/60 rounded-xl shadow-inner transform hover:scale-110 transition-transform"
               >
                 {emoji}
@@ -42,15 +64,14 @@ export function VerificationModal({
             ))}
           </div>
 
-          {/* Hex & Word Mnemonic */}
           <div className="pt-2 border-t border-slate-800">
             <div className="text-xs uppercase font-semibold tracking-wider text-slate-400 mb-1">
               Security Code & Phrase
             </div>
-            <div className="text-xl font-mono font-bold tracking-widest text-brand-400">
+            <div className="text-xl font-mono font-bold tracking-widest text-brand-400" data-testid="sas-code">
               {sasData.code.slice(0, 3)} {sasData.code.slice(3)}
             </div>
-            <div className="text-xs font-mono text-slate-400 mt-1">
+            <div className="text-xs font-mono text-slate-400 mt-1" data-testid="sas-words">
               {sasData.words}
             </div>
           </div>
@@ -84,7 +105,7 @@ export function VerificationModal({
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
               </svg>
-              Confirm Match & Mark Verified
+              Confirm Codes Match & Mark Verified
             </button>
           )}
         </div>

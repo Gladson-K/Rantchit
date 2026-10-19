@@ -26,7 +26,7 @@ export interface ChatMessage {
   senderAlias?: string;
 }
 
-export type ConnectionStatusType = 
+export type ConnectionStatusType =
   | 'idle'
   | 'initializing_crypto'
   | 'requesting_token'
@@ -35,12 +35,17 @@ export type ConnectionStatusType =
   | 'waiting_peer'
   | 'peer_joined'
   | 'keys_exchanged'
+  | 'confirmed'
+  | 'security_alert'
   | 'disconnected'
   | 'destroyed'
   | 'error';
+
+export type MkcStatus = 'pending' | 'confirmed' | 'failed';
 
 export interface SASData {
   code: string;
   emojis: string[];
   words: string;
+  transcript: string;
 }

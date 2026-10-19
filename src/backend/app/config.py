@@ -23,7 +23,25 @@ class Settings(BaseSettings):
     MESSAGE_MAX_BYTES: int = 16384
     RATE_LIMIT_CREATE_PER_HOUR: int = 100
     RATE_LIMIT_MESSAGES_PER_MINUTE: int = 120
+    RATE_LIMIT_JOIN_PER_MINUTE: int = 30
+    RATE_LIMIT_DESTROY_PER_HOUR: int = 30
     WS_HEARTBEAT_SECONDS: int = 30
+    WS_ALLOW_MISSING_ORIGIN: bool = True
+    WS_ALLOW_LOCALHOST_ORIGIN: bool = True
+    TRUST_PROXY_HEADERS: bool = False
+    ENABLE_DOCS: bool = True
+    CONTENT_SECURITY_POLICY: str = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'; "
+        "object-src 'none'"
+    )
     LOG_LEVEL: str = "INFO"
 
     @field_validator("ALLOWED_ORIGINS", mode="before")

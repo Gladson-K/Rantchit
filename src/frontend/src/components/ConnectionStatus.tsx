@@ -12,7 +12,15 @@ export function ConnectionStatus({ status, participantCount = 1, hasSharedKey = 
   let dotStyle = "bg-amber-400 animate-ping";
   let label = "Connecting...";
 
-  if (status === 'destroyed') {
+  if (status === 'security_alert') {
+    badgeStyle = "bg-rose-500/15 text-rose-400 border-rose-500/40 glow-rose";
+    dotStyle = "bg-rose-500";
+    label = "MITM Detected";
+  } else if (status === 'confirmed') {
+    badgeStyle = "bg-emerald-500/15 text-emerald-400 border-emerald-500/40 glow-emerald";
+    dotStyle = "bg-emerald-400";
+    label = "Confirmed (2/2)";
+  } else if (status === 'destroyed') {
     badgeStyle = "bg-rose-500/15 text-rose-400 border-rose-500/40 glow-rose";
     dotStyle = "bg-rose-500";
     label = "Room Destroyed";

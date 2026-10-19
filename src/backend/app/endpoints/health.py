@@ -14,14 +14,14 @@ async def health_check():
     try:
         async with async_session() as session:
             await session.execute(text("SELECT 1"))
-    except Exception as e:
-        pg_status = f"unhealthy: {str(e)}"
+    except Exception:
+        pg_status = "unhealthy"
 
     redis_status = "healthy"
     try:
         await redis_client.ping()
-    except Exception as e:
-        redis_status = f"unhealthy: {str(e)}"
+    except Exception:
+        redis_status = "unhealthy"
 
     overall = "ok" if pg_status == "healthy" and redis_status == "healthy" else "degraded"
     return HealthResponse(

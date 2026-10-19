@@ -19,14 +19,23 @@ export function useCrypto() {
     }
   }, []);
 
-  const importPeerPublicKey = useCallback(async (peerKey: string) => {
+  const establishSession = useCallback(async (peerKey: string): Promise<string> => {
     try {
-      await cryptoRef.current.importPeerPublicKey(peerKey);
+      const { transcript } = await cryptoRef.current.establishSession(peerKey);
       setHasSharedKey(true);
+      return transcript;
     } catch (err) {
-      console.error('Failed to import peer public key:', err);
+      console.error('Failed to establish XBF-MKC session:', err);
       throw err;
     }
+  }, []);
+
+  const computeConfirmationTag = useCallback(async () => {
+    return cryptoRef.current.computeConfirmationTag();
+  }, []);
+
+  const verifyConfirmationTag = useCallback(async (peerTag: string) => {
+    return cryptoRef.current.verifyConfirmationTag(peerTag);
   }, []);
 
   const encrypt = useCallback(async (plaintext: string) => {
@@ -43,7 +52,9 @@ export function useCrypto() {
     publicKey,
     hasSharedKey,
     initialize,
-    importPeerPublicKey,
+    establishSession,
+    computeConfirmationTag,
+    verifyConfirmationTag,
     encrypt,
     decrypt
   };

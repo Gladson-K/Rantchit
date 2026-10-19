@@ -1,4 +1,4 @@
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, List
 from fastapi import WebSocket
 import asyncio
 import logging
@@ -9,6 +9,8 @@ class ConnectionManager:
     def __init__(self):
         # room_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
+        # room_id -> websocket -> ephemeral public key (per connection, no self-echo races)
+        self.connection_pubkeys: Dict[str, Dict[WebSocket, str]] = {}
         self.room_locks: Dict[str, asyncio.Lock] = {}
 
     def _get_lock(self, room_id: str) -> asyncio.Lock:
@@ -33,9 +35,22 @@ class ConnectionManager:
                 count = len(self.active_connections[room_id])
                 if count == 0:
                     del self.active_connections[room_id]
+                    self.connection_pubkeys.pop(room_id, None)
                     if room_id in self.room_locks:
                         del self.room_locks[room_id]
                 logger.info(f"WebSocket left room {room_id}. Remaining participants: {count}")
+            pubkeys = self.connection_pubkeys.get(room_id)
+            if pubkeys is not None:
+                pubkeys.pop(websocket, None)
+
+    def set_pubkey(self, room_id: str, websocket: WebSocket, pubkey: str):
+        if room_id not in self.connection_pubkeys:
+            self.connection_pubkeys[room_id] = {}
+        self.connection_pubkeys[room_id][websocket] = pubkey
+
+    def get_peer_pubkeys(self, room_id: str, exclude: WebSocket) -> List[str]:
+        pubkeys = self.connection_pubkeys.get(room_id, {})
+        return [pk for ws, pk in pubkeys.items() if ws != exclude]
 
     async def send_personal(self, websocket: WebSocket, message: dict):
         try:
@@ -65,6 +80,7 @@ class ConnectionManager:
                     logger.error(f"Error closing socket during room destruction: {e}")
             if room_id in self.active_connections:
                 del self.active_connections[room_id]
+            self.connection_pubkeys.pop(room_id, None)
             if room_id in self.room_locks:
                 del self.room_locks[room_id]
 
