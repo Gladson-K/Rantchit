@@ -1,3 +1,5 @@
+export type RoomMode = 'chat' | 'lounge';
+
 export interface Room {
   roomId: string;
   expiresAt: string;
@@ -15,6 +17,13 @@ export interface RoomInfo {
   isExpired: boolean;
 }
 
+export interface Peer {
+  peerId: string;
+  alias: string;
+  isHost: boolean;
+  hasKey: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'me' | 'peer' | 'system';
@@ -24,6 +33,7 @@ export interface ChatMessage {
   timestamp: number;
   isVerified?: boolean;
   senderAlias?: string;
+  peerId?: string;
 }
 
 export type ConnectionStatusType =
@@ -35,17 +45,43 @@ export type ConnectionStatusType =
   | 'waiting_peer'
   | 'peer_joined'
   | 'keys_exchanged'
+  | 'group_ready'
   | 'confirmed'
   | 'security_alert'
   | 'disconnected'
   | 'destroyed'
   | 'error';
 
-export type MkcStatus = 'pending' | 'confirmed' | 'failed';
+export type MkcStatus = 'pending' | 'confirmed' | 'failed' | 'group';
 
 export interface SASData {
   code: string;
   emojis: string[];
   words: string;
   transcript: string;
+}
+
+/** LAN signal that is either a chat/voice/game envelope or a control frame. */
+export interface AppEnvelope {
+  kind: 'chat' | 'voice' | 'game' | 'presence';
+  [key: string]: unknown;
+}
+
+export type GameId = 'snake' | 'tictactoe';
+
+export interface GameMeta {
+  id: GameId;
+  title: string;
+  players: string;
+  icon: string;
+  color: string;
+  description: string;
+}
+
+export type VoiceState = 'idle' | 'requesting' | 'connecting' | 'live' | 'denied' | 'error';
+
+export interface VoicePeerState {
+  peerId: string;
+  muted: boolean;
+  connected: boolean;
 }

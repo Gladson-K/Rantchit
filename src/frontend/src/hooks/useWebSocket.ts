@@ -40,6 +40,10 @@ export function useWebSocket() {
           setStatus('keys_exchanged');
         } else if (data.type === 'key_confirm') {
           // confirmed / security_alert decided by the protocol handler in onMessage
+        } else if (data.type === 'peer_list') {
+          if (Array.isArray(data.peers)) {
+            setParticipantCount(data.peers.length);
+          }
         } else if (data.type === 'participant_left') {
           setStatus('waiting_peer');
           if (data.participants !== undefined) {
@@ -87,6 +91,6 @@ export function useWebSocket() {
     connect,
     send,
     close,
-    isConnected: status === 'confirmed' || status === 'keys_exchanged' || status === 'connected' || status === 'peer_joined'
+    isConnected: status === 'confirmed' || status === 'group_ready' || status === 'keys_exchanged' || status === 'connected' || status === 'peer_joined'
   };
 }

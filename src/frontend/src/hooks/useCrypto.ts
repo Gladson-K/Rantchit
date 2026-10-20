@@ -30,6 +30,17 @@ export function useCrypto() {
     }
   }, []);
 
+  const establishGroupSession = useCallback(async (peerKeys: string[]): Promise<string> => {
+    try {
+      const { transcript } = await cryptoRef.current.establishGroupSession(peerKeys);
+      setHasSharedKey(true);
+      return transcript;
+    } catch (err) {
+      console.error('Failed to establish group session:', err);
+      throw err;
+    }
+  }, []);
+
   const computeConfirmationTag = useCallback(async () => {
     return cryptoRef.current.computeConfirmationTag();
   }, []);
@@ -53,6 +64,7 @@ export function useCrypto() {
     hasSharedKey,
     initialize,
     establishSession,
+    establishGroupSession,
     computeConfirmationTag,
     verifyConfirmationTag,
     encrypt,

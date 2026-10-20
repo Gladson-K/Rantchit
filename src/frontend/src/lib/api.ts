@@ -2,13 +2,18 @@ import { Room, RoomInfo } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-export async function createRoom(roomSecretHash: string, expiresInMinutes: number = 60): Promise<Room> {
+export async function createRoom(
+  roomSecretHash: string,
+  expiresInMinutes: number = 60,
+  maxParticipants: number = 2
+): Promise<Room> {
   const response = await fetch(`${API_BASE}/api/v1/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ 
       room_secret_hash: roomSecretHash, 
-      expires_in_minutes: expiresInMinutes 
+      expires_in_minutes: expiresInMinutes,
+      max_participants: maxParticipants
     })
   });
 

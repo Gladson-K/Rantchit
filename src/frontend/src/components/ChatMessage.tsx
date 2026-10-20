@@ -27,12 +27,10 @@ export function ChatMessage({ message, peerAlias = 'Peer', isPeerVerified = fals
   if (isSystem) {
     return (
       <div className="flex justify-center my-3">
-        <div className="px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-slate-400 text-xs flex items-center gap-2">
-          <svg className="w-3.5 h-3.5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+        <div className="px-3.5 py-1.5 border-2 border-arcade-border bg-arcade-deep text-arcade-muted text-xs font-term text-base flex items-center gap-2 max-w-[90%] text-center">
+          <span className="text-arcade-cyan">[SYS]</span>
           <span>{message.text}</span>
-          <span className="text-[10px] text-slate-500">{formatTime(message.timestamp)}</span>
+          <span className="text-[10px] text-arcade-muted/70">{formatTime(message.timestamp)}</span>
         </div>
       </div>
     );
@@ -41,44 +39,37 @@ export function ChatMessage({ message, peerAlias = 'Peer', isPeerVerified = fals
   return (
     <div className={`flex flex-col mb-3 group ${isMe ? 'items-end' : 'items-start'}`}>
       <div className="flex items-center gap-1.5 mb-1 px-1">
-        <span className="text-[11px] font-medium text-slate-400">
+        <span className="font-pixel text-[8px] uppercase tracking-wider text-arcade-muted">
           {isMe ? 'You' : (message.senderAlias || peerAlias)}
         </span>
         {!isMe && isPeerVerified && (
-          <span title="Peer identity verified via SAS" className="text-emerald-400">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-            </svg>
+          <span title="Peer identity verified via SAS" className="text-arcade-green text-[10px]">
+            &#10003;
           </span>
         )}
-        <span className="text-[10px] text-slate-500">
-          {formatTime(message.timestamp)}
-        </span>
+        <span className="text-[10px] text-arcade-muted/70">{formatTime(message.timestamp)}</span>
       </div>
 
       <div className="relative max-w-[85%] sm:max-w-[70%]">
         <div
-          className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words shadow-sm ${
+          className={`px-3.5 py-2 text-sm leading-relaxed break-words font-term text-lg border-2 ${
             isMe
-              ? 'bg-brand-600 text-white rounded-br-none shadow-brand-950/20'
-              : 'bg-slate-800 text-slate-100 border border-slate-700/60 rounded-bl-none shadow-slate-950/20'
+              ? 'bg-arcade-green/15 border-arcade-green/60 text-arcade-text'
+              : 'bg-arcade-panel2 border-arcade-border text-arcade-text'
           }`}
         >
           {message.text}
         </div>
 
-        {/* Action tooltip on hover */}
         <button
           onClick={handleCopy}
           title="Copy message"
           className={`absolute top-1 ${
             isMe ? '-left-8' : '-right-8'
-          } p-1.5 bg-slate-800/90 border border-slate-700 rounded-lg text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity`}
+          } p-1.5 bg-arcade-deep border-2 border-arcade-border text-arcade-muted hover:text-arcade-green opacity-0 group-hover:opacity-100 transition-opacity`}
         >
           {copied ? (
-            <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-            </svg>
+            <span className="text-arcade-green text-xs">&#10003;</span>
           ) : (
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />

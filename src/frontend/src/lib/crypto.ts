@@ -26,6 +26,7 @@ export class E2EECrypto {
   private roomSecret: string | null = null;
   private roomSecretHashHex: string | null = null;
   private transcript: string | null = null;
+  private groupMembers: string[] | null = null;
 
   async generateRoomSecret(): Promise<string> {
     const secretBytes = window.crypto.getRandomValues(new Uint8Array(32) as Uint8Array<ArrayBuffer>);
@@ -158,6 +159,83 @@ export class E2EECrypto {
 
   hasSharedSecret(): boolean {
     return this.encKey !== null && this.macKey !== null && this.transcript !== null;
+  }
+
+  getGroupMembers(): string[] {
+    return this.groupMembers || [];
+  }
+
+  /**
+   * GROUP MODE (XBF-MKC v1 / G-set extension) for rooms with 3+ participants.
+   *
+   * The invite secret is the shared trust root (every authorized participant
+   * already holds it, and the server only ever sees SHA256(secret)). We derive
+   * one group key for all members by hashing the *sorted set of every
+   * participant's ephemeral public key* into a transcript, then running
+   * HKDF over the room secret. Because the transcript is bound to the exact
+   * member key-set, a passive observer who lacks the secret cannot derive the
+   * key, and any key-set substitution changes every member's fingerprint.
+   *
+   * Trade-off (documented): unlike the 1:1 path this does not provide
+   * per-message forward secrecy; it is intended for ephemeral, non-persisted
+   * arcade lounge rooms.
+   */
+  async establishGroupSession(allPublicKeysB64: string[]): Promise<EstablishResult> {
+    if (!this.keyPair) {
+      await this.generateKeyPair();
+    }
+    if (!this.keyPair || !this.localPublicKeyRaw) throw new Error('Failed to initialize keypair');
+    if (!this.roomSecret) throw new Error('Room secret not set');
+    if (!this.roomSecretHashHex) {
+      this.roomSecretHashHex = await this.getRoomSecretHash();
+    }
+
+    const members = Array.from(new Set([this.localPublicKeyRaw, ...allPublicKeysB64])).sort();
+    this.groupMembers = members;
+    this.transcript = await sha256Hex(
+      `${PROTO_ID}|group|${this.roomSecretHashHex}|${members.join('|')}`
+    );
+
+    const salt = base64UrlDecode(await sha256Hex(this.roomSecretHashHex));
+    const ikm = new TextEncoder().encode(this.roomSecret) as Uint8Array<ArrayBuffer>;
+    const hkdfKey = await window.crypto.subtle.importKey('raw', ikm, { name: 'HKDF' }, false, [
+      'deriveBits'
+    ]);
+
+    const encBits = await window.crypto.subtle.deriveBits(
+      {
+        name: 'HKDF',
+        hash: 'SHA-256',
+        salt,
+        info: new TextEncoder().encode(`${PROTO_ID}|group-enc|${this.transcript}`)
+      },
+      hkdfKey,
+      256
+    );
+    this.encKey = await window.crypto.subtle.importKey('raw', encBits, { name: 'AES-GCM' }, false, [
+      'encrypt',
+      'decrypt'
+    ]);
+
+    const macBits = await window.crypto.subtle.deriveBits(
+      {
+        name: 'HKDF',
+        hash: 'SHA-256',
+        salt,
+        info: new TextEncoder().encode(`${PROTO_ID}|group-mac|${this.transcript}`)
+      },
+      hkdfKey,
+      256
+    );
+    this.macKey = await window.crypto.subtle.importKey(
+      'raw',
+      macBits,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    return { transcript: this.transcript };
   }
 
   /** Mutual key confirmation tag: HMAC-SHA256(macKey, PROTO_ID|mkc|transcript) */

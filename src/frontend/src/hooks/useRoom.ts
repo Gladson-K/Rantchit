@@ -6,11 +6,15 @@ export function useRoom() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const createRoom = useCallback(async (secretHash: string, expiresInMinutes: number = 60): Promise<Room> => {
+  const createRoom = useCallback(async (
+    secretHash: string,
+    expiresInMinutes: number = 60,
+    maxParticipants: number = 2
+  ): Promise<Room> => {
     setLoading(true);
     setError(null);
     try {
-      const room = await apiCreateRoom(secretHash, expiresInMinutes);
+      const room = await apiCreateRoom(secretHash, expiresInMinutes, maxParticipants);
       return room;
     } catch (err: any) {
       const msg = err.message || 'Failed to create room';

@@ -6,7 +6,7 @@ import { ErrorScreen } from './pages/ErrorScreen';
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 font-sans selection:bg-brand-500 selection:text-white">
+    <div className="crt min-h-screen bg-arcade-bg text-arcade-text font-mono">
       <Routes>
         <Route path="/" element={<HomeScreen />} />
         <Route path="/room/:roomId" element={<RoomScreen />} />
