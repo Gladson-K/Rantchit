@@ -171,7 +171,9 @@ class TestOriginEnforcement:
     async def test_evil_origin_rejected(self, stack):
         room_id = await create_room(stack["base_url"])
         tok = await get_token(stack["base_url"], room_id)
-        with pytest.raises(websockets.exceptions.InvalidStatus) as exc:
+        with pytest.raises(
+            (websockets.exceptions.InvalidStatus, websockets.exceptions.InvalidStatusCode)
+        ) as exc:
             await join_ws(
                 stack["ws_url"], room_id, tok,
                 origin="http://localhost.evil.com",

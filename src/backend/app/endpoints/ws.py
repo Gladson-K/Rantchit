@@ -1,6 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import json
 import logging
+import re
 from sqlalchemy import select
 
 from ..database import async_session
@@ -15,6 +16,16 @@ router = APIRouter()
 
 MAX_PUBKEY_FRAMES_PER_CONNECTION = 4
 PUBKEY_FRAME_MAX_BYTES = 512
+ALIAS_MAX_LEN = 32
+ALIAS_RE = re.compile(r"^[\w \-\.]{1,32}$", re.UNICODE)
+
+# Opaque relay channels the server forwards but never inspects.
+RELAY_RULES = {
+    "signal": (settings.SIGNAL_MAX_BYTES, settings.RATE_LIMIT_SIGNALS_PER_MINUTE),
+    "game": (settings.GAME_MAX_BYTES, settings.RATE_LIMIT_GAMES_PER_MINUTE),
+    "presence": (1024, settings.RATE_LIMIT_MESSAGES_PER_MINUTE),
+}
+
 
 async def validate_and_consume_token(room_id: str, token: str) -> bool:
     token_key = f"room:{room_id}:token:{token}"
@@ -30,6 +41,22 @@ async def validate_and_consume_token(room_id: str, token: str) -> bool:
     except Exception as e:
         logger.error(f"Redis error validating token: {e}")
     return False
+
+
+async def _rate_limited(rate_key: str, limit: int, window_seconds: int) -> bool:
+    """Returns True when the bucket is exhausted (caller should reject)."""
+    current = await redis_client.incr(rate_key)
+    if current == 1:
+        await redis_client.expire(rate_key, window_seconds)
+    return current > limit
+
+
+async def _broadcast_peer_list(room_id: str):
+    await manager.broadcast_to_room(room_id, {
+        "type": "peer_list",
+        "peers": manager.get_peer_list(room_id),
+    })
+
 
 @router.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
@@ -75,6 +102,7 @@ async def websocket_chat(websocket: WebSocket):
                 await websocket.close(code=1008, reason="Room has expired")
                 return
             room_expires_at = ensure_aware(room.expires_at)
+            room_max_participants = int(room.max_participants or 2)
         except Exception as e:
             logger.error(f"Database error checking room: {e}")
             await websocket.close(code=1011, reason="Internal server error")
@@ -85,9 +113,12 @@ async def websocket_chat(websocket: WebSocket):
     slot_claimed = False
     try:
         current = await redis_client.incr(slot_key)
-        if current > 2:
+        if current > room_max_participants:
             await redis_client.decr(slot_key)
-            await websocket.close(code=1008, reason="Room is full (maximum 2 participants reached)")
+            await websocket.close(
+                code=1008,
+                reason=f"Room is full (maximum {room_max_participants} participants reached)",
+            )
             return
         ttl_seconds = max(10, int((room_expires_at - now_utc()).total_seconds()))
         await redis_client.expire(slot_key, ttl_seconds)
@@ -99,27 +130,43 @@ async def websocket_chat(websocket: WebSocket):
 
     # 6. Accept WebSocket and register with manager
     await websocket.accept()
-    await manager.connect(room_id, websocket)
+    conn = await manager.connect(room_id, websocket)
     pubkey_frames_seen = 0
+
+    async def is_rate_limited(kind: str) -> bool:
+        client_ip = websocket.client.host if websocket.client else "127.0.0.1"
+        ip_hash = hash_ip(client_ip)
+        return await _rate_limited(
+            f"ratelimit:ip:{ip_hash}:{kind}",
+            RELAY_RULES.get(kind, (0, settings.RATE_LIMIT_MESSAGES_PER_MINUTE))[1],
+            60 if kind != "create" else 3600,
+        )
 
     try:
         await manager.send_personal(websocket, {
             "type": "connected",
             "room_id": room_id,
-            "participants": manager.get_participant_count(room_id)
+            "peer_id": conn.peer_id,
+            "participants": manager.get_participant_count(room_id),
+            "max_participants": room_max_participants,
         })
 
         # Send ephemeral public keys of any already-connected peers (never our own).
-        for peer_key in manager.get_peer_pubkeys(room_id, exclude=websocket):
+        for peer in manager.get_peer_pubkeys(room_id, exclude=websocket):
             await manager.send_personal(websocket, {
                 "type": "peer_public_key",
-                "public_key": peer_key
+                "from": peer["peer_id"],
+                "public_key": peer["public_key"],
             })
 
         await manager.broadcast_to_room(room_id, {
             "type": "peer_joined",
-            "participants": manager.get_participant_count(room_id)
+            "peer_id": conn.peer_id,
+            "participants": manager.get_participant_count(room_id),
+            "max_participants": room_max_participants,
         }, exclude=websocket)
+
+        await _broadcast_peer_list(room_id)
 
         while True:
             raw_data = await websocket.receive_text()
@@ -134,6 +181,14 @@ async def websocket_chat(websocket: WebSocket):
 
             if msg_type == "ping":
                 await manager.send_personal(websocket, {"type": "pong"})
+                continue
+
+            # Roster display name (validated, never trusted for authz).
+            if msg_type == "hello":
+                alias = data.get("alias")
+                if isinstance(alias, str) and ALIAS_RE.match(alias.strip()):
+                    manager.set_alias(room_id, websocket, alias.strip()[:ALIAS_MAX_LEN])
+                    await _broadcast_peer_list(room_id)
                 continue
 
             # Ephemeral public key exchange (validated, size-capped, rate-capped)
@@ -164,8 +219,10 @@ async def websocket_chat(websocket: WebSocket):
                 # Relay to the other participant(s) only — no self-echo.
                 await manager.broadcast_to_room(room_id, {
                     "type": "peer_public_key",
+                    "from": conn.peer_id,
                     "public_key": pub_key
                 }, exclude=websocket)
+                await _broadcast_peer_list(room_id)
                 continue
 
             # Mutual key confirmation tag relay (XBF-MKC v1): opaque HMAC tag,
@@ -180,19 +237,14 @@ async def websocket_chat(websocket: WebSocket):
                     continue
                 await manager.broadcast_to_room(room_id, {
                     "type": "key_confirm",
+                    "from": conn.peer_id,
                     "tag": tag
                 }, exclude=websocket)
                 continue
 
-            # Encrypted message relay — server NEVER inspects encrypted_payload.
+            # Encrypted chat relay — server NEVER inspects encrypted_payload.
             if msg_type == "message":
-                client_ip = websocket.client.host if websocket.client else "127.0.0.1"
-                ip_hash = hash_ip(client_ip)
-                rate_key = f"ratelimit:ip:{ip_hash}:messages"
-                current_rate = await redis_client.incr(rate_key)
-                if current_rate == 1:
-                    await redis_client.expire(rate_key, 60)
-                if current_rate > settings.RATE_LIMIT_MESSAGES_PER_MINUTE:
+                if await is_rate_limited("messages"):
                     await manager.send_personal(websocket, {
                         "type": "error",
                         "message": "Message rate limit exceeded. Please slow down."
@@ -206,7 +258,40 @@ async def websocket_chat(websocket: WebSocket):
                     })
                     continue
 
+                data["from"] = conn.peer_id
                 await manager.broadcast_to_room(room_id, data, exclude=websocket)
+                continue
+
+            # Opaque relay channels: WebRTC signalling + arcade moves.
+            # Payload is end-to-end encrypted by the clients; the relay only
+            # reads the routing hint (`to`) and enforces size/rate limits.
+            if msg_type in RELAY_RULES:
+                max_bytes, _ = RELAY_RULES[msg_type]
+                if await is_rate_limited(msg_type):
+                    await manager.send_personal(websocket, {
+                        "type": "error",
+                        "message": f"{msg_type} rate limit exceeded."
+                    })
+                    continue
+                if len(raw_data) > max_bytes:
+                    await manager.send_personal(websocket, {
+                        "type": "error",
+                        "message": f"{msg_type} frame exceeds maximum allowed size."
+                    })
+                    continue
+
+                outbound = dict(data)
+                outbound["from"] = conn.peer_id
+                target = data.get("to")
+                if isinstance(target, str) and target:
+                    delivered = await manager.send_to_peer(room_id, target, outbound)
+                    if not delivered:
+                        await manager.send_personal(websocket, {
+                            "type": "error",
+                            "message": "Target peer is no longer connected."
+                        })
+                else:
+                    await manager.broadcast_to_room(room_id, outbound, exclude=websocket)
                 continue
 
             if msg_type == "destroy":
@@ -246,7 +331,9 @@ async def websocket_chat(websocket: WebSocket):
         try:
             await manager.broadcast_to_room(room_id, {
                 "type": "participant_left",
-                "participants": manager.get_participant_count(room_id)
+                "peer_id": conn.peer_id,
+                "participants": manager.get_participant_count(room_id),
             })
+            await _broadcast_peer_list(room_id)
         except Exception:
             pass

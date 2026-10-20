@@ -20,9 +20,18 @@ class Settings(BaseSettings):
     ]
     ROOM_DEFAULT_TTL_MINUTES: int = 60
     ROOM_MAX_TTL_MINUTES: int = 1440
+    # Host-selectable participant cap. The host asks for a size at room
+    # creation; the server clamps it to ROOM_MAX_PARTICIPANTS_LIMIT.
+    ROOM_DEFAULT_MAX_PARTICIPANTS: int = 2
+    ROOM_MAX_PARTICIPANTS_LIMIT: int = 8
+    # Relay ceilings for the opaque WebRTC-signalling / arcade-move channels.
+    SIGNAL_MAX_BYTES: int = 32768
+    GAME_MAX_BYTES: int = 8192
     MESSAGE_MAX_BYTES: int = 16384
     RATE_LIMIT_CREATE_PER_HOUR: int = 100
     RATE_LIMIT_MESSAGES_PER_MINUTE: int = 120
+    RATE_LIMIT_SIGNALS_PER_MINUTE: int = 240
+    RATE_LIMIT_GAMES_PER_MINUTE: int = 600
     RATE_LIMIT_JOIN_PER_MINUTE: int = 30
     RATE_LIMIT_DESTROY_PER_HOUR: int = 30
     WS_HEARTBEAT_SECONDS: int = 30

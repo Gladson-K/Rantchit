@@ -63,12 +63,15 @@ async def create_room(
     expires_in = min(payload.expires_in_minutes, settings.ROOM_MAX_TTL_MINUTES)
     expires_at = now_utc() + timedelta(minutes=expires_in)
 
+    # Host-chosen participant cap, always clamped to the server's configured ceiling.
+    max_participants = max(2, min(payload.max_participants, settings.ROOM_MAX_PARTICIPANTS_LIMIT))
+
     room = Room(
         id=uuid.uuid4(),
         secret_hash=payload.room_secret_hash,
         status="active",
         expires_at=expires_at,
-        max_participants=2,
+        max_participants=max_participants,
         participant_count=0,
         ip_hash=ip_hash,
     )
@@ -76,7 +79,7 @@ async def create_room(
     await db.commit()
     await db.refresh(room)
 
-    logger.info(f"Room created: {room.id}, expires at {room.expires_at}")
+    logger.info(f"Room created: {room.id} (max {room.max_participants}), expires at {room.expires_at}")
     return RoomResponse(
         room_id=room.id,
         expires_at=room.expires_at,
@@ -157,8 +160,11 @@ async def get_join_token(
 
     # Optimistic capacity pre-check. Authoritative slot accounting happens
     # atomically at WebSocket accept and is released on disconnect.
-    if manager.get_participant_count(str(room_id)) >= 2:
-        raise HTTPException(status_code=409, detail="Room is full (maximum 2 participants reached)")
+    if manager.get_participant_count(str(room_id)) >= room.max_participants:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Room is full (maximum {room.max_participants} participants reached)",
+        )
 
     token = generate_join_token()
     token_key = f"room:{room_id}:token:{token}"

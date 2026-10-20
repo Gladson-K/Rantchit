@@ -15,6 +15,12 @@ class RoomCreate(BaseModel):
         description="SHA-256 hex of the room secret"
     )
     expires_in_minutes: int = Field(default=60, ge=1, le=1440, description="Expiration time in minutes (1 to 1440)")
+    max_participants: int = Field(
+        default=2,
+        ge=2,
+        le=64,
+        description="Host-defined participant cap (server clamps to its configured limit)"
+    )
 
 class RoomResponse(BaseModel):
     room_id: UUID
