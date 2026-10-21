@@ -14,7 +14,8 @@ import { VoicePanel } from '../components/VoicePanel';
 import { GamesPanel } from '../components/GamesPanel';
 import { RetroTabs, TabDef } from '../components/RetroUI';
 import { generateSASFromTranscript } from '../lib/sas';
-import { monitorStream, VoiceCall } from '../lib/webrtc';
+import { normalizePeers } from '../lib/peers';
+import { monitorStream, VoiceCall, hasTurnConfigured } from '../lib/webrtc';
 import {
   ChatMessage as MessageType,
   MkcStatus,
@@ -25,6 +26,8 @@ import {
 } from '../lib/types';
 
 type TabId = 'chat' | 'arcade' | 'voice';
+
+const turnConfigured = hasTurnConfigured();
 
 export function RoomScreen() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -171,6 +174,24 @@ export function RoomScreen() {
   /* ------------------------------------------------------------------ */
   /* XBF-MKC protocol handler (reads mutable refs — never stale)         */
   /* ------------------------------------------------------------------ */
+  /** Drop all per-peer media state (monitor, stream, speaking flag). */
+  const cleanupPeerMedia = useCallback((peerId: string) => {
+    monitorsRef.current.get(peerId)?.();
+    monitorsRef.current.delete(peerId);
+    setRemoteStreams(prev => {
+      if (!(peerId in prev)) return prev;
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
+    setSpeaking(prev => {
+      if (!(peerId in prev)) return prev;
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
+  }, []);
+
   const handleWsMessage = useCallback(async (data: any) => {
     switch (data.type) {
       case 'connected': {
@@ -187,7 +208,7 @@ export function RoomScreen() {
       }
 
       case 'peer_list': {
-        const peers: Peer[] = Array.isArray(data.peers) ? data.peers : [];
+        const peers: Peer[] = normalizePeers(data.peers);
         setRoster(peers);
         expectedOthersRef.current = Math.max(0, peers.length - 1);
         const liveIds = new Set(peers.map((p) => p.peerId));
@@ -319,7 +340,10 @@ export function RoomScreen() {
 
       case 'participant_left':
         pushSystemMessage('A player left the room.');
-        if (data.peer_id && voiceRef.current) voiceRef.current.removePeer(data.peer_id);
+        if (data.peer_id) {
+          voiceRef.current?.removePeer(data.peer_id);
+          cleanupPeerMedia(data.peer_id);
+        }
         break;
 
       case 'room_destroyed':
@@ -337,7 +361,7 @@ export function RoomScreen() {
     }
   }, [
     sendWS, establishSession, computeConfirmationTag, verifyConfirmationTag, decrypt,
-    crypto, navigate, pushSystemMessage, setStatus, myAlias, maybeEstablishGroup
+    crypto, navigate, pushSystemMessage, setStatus, myAlias, maybeEstablishGroup, cleanupPeerMedia
   ]);
 
   /* ------------------------------------------------------------------ */
@@ -454,6 +478,11 @@ export function RoomScreen() {
   const startVoice = async () => {
     const id = selfIdRef.current;
     if (!id) return;
+    // Signalling frames are E2E-encrypted, so the session key must exist first.
+    if (!(mkcRef.current === 'confirmed' || mkcRef.current === 'group')) {
+      setVoiceError('Voice unlocks once the encrypted session is ready.');
+      return;
+    }
     setVoiceError(null);
     setVoiceState('requesting');
     try {
@@ -462,6 +491,13 @@ export function RoomScreen() {
           void sendRelay('signal', to, payload);
         },
         onRemoteStream: handleRemoteStream,
+        onPeerConnectionChange: (peerId, state) => {
+          if (state === 'failed') {
+            setVoiceError(
+              'A peer audio connection failed. This usually means NAT traversal failed — configure a TURN server (see docs/BOTTLENECKS.md).'
+            );
+          }
+        },
         onError: (m) => setVoiceError(m),
       });
       voiceRef.current = call;
@@ -654,6 +690,8 @@ export function RoomScreen() {
                   onStart={startVoice}
                   onStop={stopVoice}
                   onToggleMute={toggleMute}
+                  disabled={!inputEnabled}
+                  turnConfigured={turnConfigured}
                 />
               </div>
             )}

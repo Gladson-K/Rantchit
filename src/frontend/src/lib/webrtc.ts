@@ -18,13 +18,57 @@ export interface VoiceHandlers {
   /** Send an opaque signalling payload to one peer (or broadcast if null). */
   send: (to: string | null, payload: SignalPayload) => void;
   onRemoteStream?: (peerId: string, stream: MediaStream) => void;
-  onPeerConnectionChange?: (peerId: string, connected: boolean) => void;
+  onPeerConnectionChange?: (peerId: string, state: RTCPeerConnectionState) => void;
   onError?: (message: string) => void;
 }
 
-const ICE_SERVERS: RTCIceServer[] = [
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ];
+
+/**
+ * ICE configuration is overridable so deployments can add a TURN server
+ * (required for reliable calls across symmetric NATs and for larger rooms).
+ *
+ * Priority:
+ *   1. window.__RANTCHIT_ICE__  (array of RTCIceServer, set by an injected config)
+ *   2. localStorage["rantchit_ice"] (JSON array)
+ *   3. built-in public STUN
+ */
+export function loadIceServers(): RTCIceServer[] {
+  const parse = (value: unknown): RTCIceServer[] | null => {
+    if (!value) return null;
+    try {
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object') {
+        return parsed as RTCIceServer[];
+      }
+    } catch {
+      /* fall through to default */
+    }
+    return null;
+  };
+
+  const injected = (window as any).__RANTCHIT_ICE__;
+  const fromWindow = parse(injected);
+  if (fromWindow) return fromWindow;
+
+  try {
+    const fromStorage = parse(window.localStorage?.getItem('rantchit_ice'));
+    if (fromStorage) return fromStorage;
+  } catch {
+    /* localStorage may be unavailable */
+  }
+
+  return DEFAULT_ICE_SERVERS;
+}
+
+export function hasTurnConfigured(): boolean {
+  return loadIceServers().some((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    return urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
+  });
+}
 
 export class VoiceCall {
   private selfId = '';
@@ -95,7 +139,7 @@ export class VoiceCall {
     let pc = this.pcs.get(peerId);
     if (pc) return pc;
 
-    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pc = new RTCPeerConnection({ iceServers: loadIceServers() });
     this.pcs.set(peerId, pc);
 
     if (this.localStream) {
@@ -116,7 +160,7 @@ export class VoiceCall {
     };
 
     pc.onconnectionstatechange = () => {
-      this.handlers.onPeerConnectionChange?.(peerId, pc!.connectionState === 'connected');
+      this.handlers.onPeerConnectionChange?.(peerId, pc!.connectionState);
     };
 
     return pc;
@@ -229,6 +273,9 @@ export function monitorStream(stream: MediaStream, onSpeaking: (speaking: boolea
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return () => undefined;
     ctx = new AudioCtx();
+    // Autoplay policy can start the context suspended; resume on the next
+    // user gesture-backed tick so the meter actually reports levels.
+    if (ctx.state === 'suspended') ctx.resume().catch(() => undefined);
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;

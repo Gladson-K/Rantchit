@@ -15,6 +15,9 @@
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
         Referrer-Policy no-referrer
+        # Voice chat requires microphone=(self); camera/geolocation stay off.
+        Permissions-Policy "camera=(), microphone=(self), geolocation=()"
+        -Server
     }
 
     log {

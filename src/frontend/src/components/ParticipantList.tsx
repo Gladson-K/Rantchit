@@ -34,13 +34,14 @@ export function ParticipantList({
       </div>
 
       <div className="space-y-1.5">
-        {roster.map((p) => {
-          const isSelf = p.peerId === selfId;
-          const isSpeaking = !!speaking[p.peerId];
+        {roster.map((p, idx) => {
+          const peerId = p.peerId || `unknown-${idx}`;
+          const isSelf = peerId === selfId;
+          const isSpeaking = !!speaking[peerId];
           return (
             <button
-              key={p.peerId}
-              onClick={() => !isSelf && onPeerClick?.(p.peerId)}
+              key={peerId}
+              onClick={() => !isSelf && onPeerClick?.(peerId)}
               className={`w-full flex items-center gap-2 px-2.5 py-2 border-2 text-left transition-colors ${
                 isSpeaking
                   ? 'border-arcade-green bg-arcade-green/10'
@@ -49,11 +50,11 @@ export function ParticipantList({
             >
               <span className={`led ${p.hasKey ? 'text-arcade-green' : 'text-arcade-muted'}`} />
               <span className="flex-1 truncate font-term text-base text-arcade-text">
-                {isSelf ? `${selfAlias} (you)` : p.alias || p.peerId}
+                {isSelf ? `${selfAlias} (you)` : p.alias || peerId}
               </span>
               {p.isHost && <span title="Host" className="text-arcade-yellow text-xs">&#9733;</span>}
               <span className="font-pixel text-[7px] text-arcade-muted">
-                {p.peerId.replace('p_', '').slice(0, 4)}
+                {peerId.replace('p_', '').slice(0, 4) || '????'}
               </span>
             </button>
           );

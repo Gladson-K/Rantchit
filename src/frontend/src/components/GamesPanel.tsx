@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RetroButton } from './RetroUI';
 import { PixelSnake } from './games/PixelSnake';
+import { Breakout } from './games/Breakout';
+import { ExternalGameFrame } from './games/ExternalGameFrame';
+import { RuffleFlash } from './games/RuffleFlash';
 import { Cell, computeWinner, Mark, TicTacToe } from './games/TicTacToe';
 import { GAME_CATALOG } from '../lib/constants';
-import { GameId, Peer } from '../lib/types';
+import { GameId, GameMeta, Peer } from '../lib/types';
 
 interface GamesPanelProps {
   selfId: string | null;
@@ -26,6 +29,11 @@ export function GamesPanel({ selfId, peers, sendGame, subscribeGame }: GamesPane
   const myMarkRef = useRef<Mark>('X');
 
   const others = useMemo(() => peers.filter((p) => p.peerId !== selfId), [peers, selfId]);
+
+  const selectedMeta: GameMeta | undefined = useMemo(
+    () => GAME_CATALOG.find((g) => g.id === selected),
+    [selected]
+  );
 
   const myMark: Mark = useMemo(() => {
     if (!selfId || !opponentId) return 'X';
@@ -122,12 +130,19 @@ export function GamesPanel({ selfId, peers, sendGame, subscribeGame }: GamesPane
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <RetroButton onClick={() => setSelected(null)}>&lt; BACK</RetroButton>
-        <span className="font-pixel text-[9px] text-arcade-cyan">
-          {GAME_CATALOG.find((g) => g.id === selected)?.title}
-        </span>
+        <span className="font-pixel text-[9px] text-arcade-cyan">{selectedMeta?.title}</span>
       </div>
 
       {selected === 'snake' && <PixelSnake />}
+
+      {selected === 'breakout' && <Breakout />}
+
+      {selectedMeta?.kind === 'external' &&
+        (selectedMeta.runtime === 'flash' ? (
+          <RuffleFlash meta={selectedMeta} />
+        ) : (
+          <ExternalGameFrame meta={selectedMeta} />
+        ))}
 
       {selected === 'tictactoe' && (
         <div className="space-y-4">

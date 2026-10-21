@@ -39,13 +39,19 @@ class Settings(BaseSettings):
     WS_ALLOW_LOCALHOST_ORIGIN: bool = True
     TRUST_PROXY_HEADERS: bool = False
     ENABLE_DOCS: bool = True
+    # Voice chat requires microphone access. `microphone=(self)` grants it to
+    # same-origin documents (the SPA) while camera/geolocation stay disabled.
+    PERMISSIONS_POLICY: str = "camera=(), microphone=(self), geolocation=()"
     CONTENT_SECURITY_POLICY: str = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'wasm-unsafe-eval'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: blob:; "
         "connect-src 'self' ws: wss:; "
+        "media-src 'self' blob: mediastream:; "
+        "worker-src 'self' blob:; "
+        "frame-src 'self' https:; "
         "frame-ancestors 'none'; "
         "base-uri 'none'; "
         "form-action 'self'; "

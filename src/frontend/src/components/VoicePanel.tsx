@@ -13,6 +13,11 @@ interface VoicePanelProps {
   onStart: () => void;
   onStop: () => void;
   onToggleMute: () => void;
+  /** Voice requires the E2E session key, so it stays disabled until ready. */
+  disabled?: boolean;
+  disabledReason?: string;
+  /** True when a TURN server is configured (better NAT traversal). */
+  turnConfigured?: boolean;
 }
 
 function RemoteAudio({ peerId, stream }: { peerId: string; stream: MediaStream }) {
@@ -37,6 +42,9 @@ export function VoicePanel({
   onStart,
   onStop,
   onToggleMute,
+  disabled = false,
+  disabledReason,
+  turnConfigured = false,
 }: VoicePanelProps) {
   const live = voiceState === 'live';
   const busy = voiceState === 'requesting' || voiceState === 'connecting';
@@ -68,9 +76,21 @@ export function VoicePanel({
           </div>
         )}
 
+        {!live && disabled && (
+          <div className="retro-inset border-2 border-arcade-amber/60 text-arcade-amber p-2 text-xs font-term text-base">
+            {disabledReason || 'Voice unlocks once the encrypted session is ready.'}
+          </div>
+        )}
+
+        {!turnConfigured && (
+          <p className="font-term text-sm text-arcade-muted/70">
+            STUN only — if audio never connects behind strict NATs, configure a TURN server (see docs/BOTTLENECKS.md).
+          </p>
+        )}
+
         <div className="flex flex-wrap justify-center gap-2">
           {!live ? (
-            <RetroButton variant="green" onClick={onStart} disabled={busy}>
+            <RetroButton variant="green" onClick={onStart} disabled={busy || disabled}>
               {busy ? 'Connecting...' : 'START VOICE'}
             </RetroButton>
           ) : (

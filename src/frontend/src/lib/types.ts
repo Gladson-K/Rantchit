@@ -67,7 +67,12 @@ export interface AppEnvelope {
   [key: string]: unknown;
 }
 
-export type GameId = 'snake' | 'tictactoe';
+export type GameId = 'snake' | 'tictactoe' | 'breakout' | 'external' | 'flash';
+
+/** How a game is delivered. */
+export type GameKind = 'builtin' | 'external';
+/** Runtime engine for embedded games. */
+export type GameRuntime = 'html5' | 'flash';
 
 export interface GameMeta {
   id: GameId;
@@ -76,6 +81,12 @@ export interface GameMeta {
   icon: string;
   color: string;
   description: string;
+  /** `builtin` = bundled React game; `external` = sandboxed iframe embed. */
+  kind: GameKind;
+  /** Runtime for external games; `flash` requires the self-hosted Ruffle WASM. */
+  runtime?: GameRuntime;
+  /** URL for external games (https for internet, or `/games/...` self-hosted). */
+  url?: string;
 }
 
 export type VoiceState = 'idle' | 'requesting' | 'connecting' | 'live' | 'denied' | 'error';
